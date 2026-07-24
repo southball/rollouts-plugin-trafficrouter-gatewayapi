@@ -7,7 +7,7 @@ CHAINSAW_VERSION=v0.2.12
 # Versions of components used in e2e tests
 GATEWAY_API_VERSION=v1.4.0
 # See more versions at https://artifacthub.io/packages/helm/argo/argo-rollouts
-ARGO_ROLLOUTS_HELM_VERSION=2.40.5 # Contains Argo Rollouts 1.8.3
+ARGO_ROLLOUTS_HELM_VERSION=2.40.10 # Contains Argo Rollouts 1.9.0
 # See more versions at https://artifacthub.io/packages/helm/traefik/traefik
 TRAEFIK_HELM_VERSION=37.4.0 # Contains Traefik proxy v3.6.2
 
@@ -90,5 +90,4 @@ endif
 .PHONY: serve-docs
 serve-docs:  ## serve docs locally
 	docker run --rm -it -p 8000:8000 -v ${CURRENT_DIR}:/docs squidfunk/mkdocs-material serve -a 0.0.0.0:8000
-
 
