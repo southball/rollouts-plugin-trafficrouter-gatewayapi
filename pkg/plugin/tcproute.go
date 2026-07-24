@@ -6,6 +6,7 @@ import (
 
 	"github.com/argoproj/argo-rollouts/pkg/apis/rollouts/v1alpha1"
 	pluginTypes "github.com/argoproj/argo-rollouts/utils/plugin/types"
+	"github.com/argoproj/argo-rollouts/utils/weightutil"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
 )
@@ -16,7 +17,7 @@ func (r *RpcPlugin) setTCPRouteWeight(rollout *v1alpha1.Rollout, desiredWeight i
 
 	canaryServiceName := rollout.Spec.Strategy.Canary.CanaryService
 	stableServiceName := rollout.Spec.Strategy.Canary.StableService
-	restWeight := 100 - desiredWeight
+	restWeight := weightutil.MaxTrafficWeight(rollout) - desiredWeight
 
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		tcpRoute, err := tcpRouteClient.Get(ctx, gatewayAPIConfig.TCPRoute, metav1.GetOptions{})

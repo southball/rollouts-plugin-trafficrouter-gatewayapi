@@ -1,10 +1,13 @@
 package plugin
 
 import (
+	"context"
 	"testing"
 
 	"github.com/argoproj/argo-rollouts/pkg/apis/rollouts/v1alpha1"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
@@ -222,4 +225,109 @@ func TestHandleExperiment_RemoveExperimentServices(t *testing.T) {
 		}
 	}
 	assert.False(t, hasExperimentServices, "HTTPRoute should not have experiment services after cleanup")
+}
+
+func TestHandleExperimentUsesMaxTrafficWeight(t *testing.T) {
+	const maxWeight = int32(100000)
+	rollout := experimentRollout(maxWeight, "active-experiment")
+	httpRoute := experimentHTTPRoute(
+		backendRef("stable-svc", 100000),
+		backendRef("canary-svc", 0),
+		backendRef("exp-svc-1", 20000),
+		backendRef("exp-svc-2", 30000),
+	)
+	destinations := []v1alpha1.WeightDestination{
+		{ServiceName: "exp-svc-1", Weight: 20000},
+		{ServiceName: "exp-svc-2", Weight: 30000},
+	}
+
+	err := HandleExperiment(context.Background(), nil, nil, testLogger(), rollout, httpRoute, destinations)
+
+	require.NoError(t, err)
+	assert.Equal(t, int32(50000), *httpRoute.Spec.Rules[0].BackendRefs[0].Weight)
+}
+
+func TestHandleExperimentFloorsStableWeightWhenExperimentWeightsExceedMaxTrafficWeight(t *testing.T) {
+	const maxWeight = int32(100000)
+	rollout := experimentRollout(maxWeight, "active-experiment")
+	httpRoute := experimentHTTPRoute(
+		backendRef("stable-svc", 100000),
+		backendRef("canary-svc", 0),
+		backendRef("exp-svc-1", 60000),
+		backendRef("exp-svc-2", 50000),
+	)
+	destinations := []v1alpha1.WeightDestination{
+		{ServiceName: "exp-svc-1", Weight: 60000},
+		{ServiceName: "exp-svc-2", Weight: 50000},
+	}
+
+	err := HandleExperiment(context.Background(), nil, nil, testLogger(), rollout, httpRoute, destinations)
+
+	require.NoError(t, err)
+	require.Len(t, httpRoute.Spec.Rules[0].BackendRefs, 4)
+	assert.Equal(t, int32(0), *httpRoute.Spec.Rules[0].BackendRefs[0].Weight)
+	assert.Equal(t, int32(0), *httpRoute.Spec.Rules[0].BackendRefs[1].Weight)
+	assert.Equal(t, int32(60000), *httpRoute.Spec.Rules[0].BackendRefs[2].Weight)
+	assert.Equal(t, int32(50000), *httpRoute.Spec.Rules[0].BackendRefs[3].Weight)
+}
+
+func TestHandleExperimentCleanupRestoresMaxTrafficWeight(t *testing.T) {
+	const maxWeight = int32(100000)
+	rollout := experimentRollout(maxWeight, "")
+	rollout.Status.Canary.Weights = &v1alpha1.TrafficWeights{
+		Additional: []v1alpha1.WeightDestination{{ServiceName: "exp-svc", Weight: 30000}},
+	}
+	httpRoute := experimentHTTPRoute(
+		backendRef("stable-svc", 70000),
+		backendRef("canary-svc", 0),
+		backendRef("exp-svc", 30000),
+	)
+
+	err := HandleExperiment(context.Background(), nil, nil, testLogger(), rollout, httpRoute, nil)
+
+	require.NoError(t, err)
+	require.Len(t, httpRoute.Spec.Rules[0].BackendRefs, 2)
+	assert.Equal(t, int32(100000), *httpRoute.Spec.Rules[0].BackendRefs[0].Weight)
+	assert.Equal(t, int32(0), *httpRoute.Spec.Rules[0].BackendRefs[1].Weight)
+}
+
+func experimentRollout(maxWeight int32, currentExperiment string) *v1alpha1.Rollout {
+	return &v1alpha1.Rollout{
+		ObjectMeta: metav1.ObjectMeta{Name: "rollout-test", Namespace: "default"},
+		Spec: v1alpha1.RolloutSpec{
+			Strategy: v1alpha1.RolloutStrategy{
+				Canary: &v1alpha1.CanaryStrategy{
+					StableService: "stable-svc",
+					CanaryService: "canary-svc",
+					TrafficRouting: &v1alpha1.RolloutTrafficRouting{
+						MaxTrafficWeight: &maxWeight,
+					},
+				},
+			},
+		},
+		Status: v1alpha1.RolloutStatus{
+			Canary: v1alpha1.CanaryStatus{CurrentExperiment: currentExperiment},
+		},
+	}
+}
+
+func experimentHTTPRoute(refs ...gatewayv1.HTTPBackendRef) *gatewayv1.HTTPRoute {
+	return &gatewayv1.HTTPRoute{
+		Spec: gatewayv1.HTTPRouteSpec{
+			Rules: []gatewayv1.HTTPRouteRule{{BackendRefs: refs}},
+		},
+	}
+}
+
+func backendRef(name string, weight int32) gatewayv1.HTTPBackendRef {
+	return gatewayv1.HTTPBackendRef{
+		BackendRef: gatewayv1.BackendRef{
+			BackendObjectReference: gatewayv1.BackendObjectReference{Name: gatewayv1.ObjectName(name)},
+			Weight:                 &weight,
+		},
+	}
+}
+
+func testLogger() *logrus.Entry {
+	return logrus.New().WithField("test", "experiment")
 }

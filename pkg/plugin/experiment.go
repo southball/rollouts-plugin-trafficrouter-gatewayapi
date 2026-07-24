@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/argoproj/argo-rollouts/pkg/apis/rollouts/v1alpha1"
+	"github.com/argoproj/argo-rollouts/utils/weightutil"
 	"github.com/sirupsen/logrus"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -69,12 +70,13 @@ func HandleExperiment(ctx context.Context, clientset *kubernetes.Clientset, gate
 		}
 
 		// Sanity cap: don't allow overflow
-		if totalExperimentWeight > 100 {
-			logger.Warnf("Total experiment weight exceeds 100 (got %d), capping at 100", totalExperimentWeight)
-			totalExperimentWeight = 100
+		maxWeight := weightutil.MaxTrafficWeight(rollout)
+		if totalExperimentWeight > maxWeight {
+			logger.Warnf("Total experiment weight exceeds maxTrafficWeight %d (got %d), capping at %d", maxWeight, totalExperimentWeight, maxWeight)
+			totalExperimentWeight = maxWeight
 		}
 
-		stableWeight := int32(100) - totalExperimentWeight
+		stableWeight := maxWeight - totalExperimentWeight
 
 		for i, backendRef := range httpRoute.Spec.Rules[ruleIdx].BackendRefs {
 			if string(backendRef.Name) == stableService {
@@ -136,7 +138,7 @@ func HandleExperiment(ctx context.Context, clientset *kubernetes.Clientset, gate
 	if !isExperimentActive && hasExperimentServices {
 		logger.Info("Experiment is no longer active, removing experiment services from HTTPRoute")
 
-		stableWeight := int32(100)
+		stableWeight := weightutil.MaxTrafficWeight(rollout)
 		filteredBackendRefs := []gatewayv1.HTTPBackendRef{}
 
 		for _, backendRef := range httpRoute.Spec.Rules[ruleIdx].BackendRefs {

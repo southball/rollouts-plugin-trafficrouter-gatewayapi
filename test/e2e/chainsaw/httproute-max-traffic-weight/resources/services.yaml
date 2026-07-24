@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: max-weight-stable-service
+spec:
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app: httproute-max-weight
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: max-weight-canary-service
+spec:
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app: httproute-max-weight

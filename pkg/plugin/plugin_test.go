@@ -109,6 +109,39 @@ func TestRunSuccessfully(t *testing.T) {
 		assert.Equal(t, 100-desiredWeight, *(updatedHTTP.Spec.Rules[0].BackendRefs[0].Weight))
 		assert.Equal(t, desiredWeight, *(updatedHTTP.Spec.Rules[0].BackendRefs[1].Weight))
 	})
+	t.Run("SetWeightUsesMaxTrafficWeight", func(t *testing.T) {
+		maxWeight := int32(100000)
+		const desiredWeight = int32(20000)
+		rpcPluginImp.GatewayAPIClientset = gwFake.NewSimpleClientset(&mocks.HTTPRouteObj, &mocks.GRPCRouteObj, &mocks.TCPPRouteObj, &mocks.TLSRouteObj)
+		rollout := newRollout(mocks.StableServiceName, mocks.CanaryServiceName, &GatewayAPITrafficRouting{
+			Namespace: mocks.RolloutNamespace,
+			HTTPRoute: mocks.HTTPRouteName,
+			GRPCRoute: mocks.GRPCRouteName,
+			TCPRoute:  mocks.TCPRouteName,
+			TLSRoute:  mocks.TLSRouteName,
+		})
+		rollout.Spec.Strategy.Canary.TrafficRouting.MaxTrafficWeight = &maxWeight
+
+		err := pluginInstance.SetWeight(rollout, desiredWeight, []v1alpha1.WeightDestination{})
+
+		assert.Empty(t, err.Error())
+		updatedHTTP, getErr := rpcPluginImp.GatewayAPIClientset.GatewayV1().HTTPRoutes(mocks.RolloutNamespace).Get(context.Background(), mocks.HTTPRouteName, metav1.GetOptions{})
+		require.NoError(t, getErr)
+		assert.Equal(t, maxWeight-desiredWeight, *(updatedHTTP.Spec.Rules[0].BackendRefs[0].Weight))
+		assert.Equal(t, desiredWeight, *(updatedHTTP.Spec.Rules[0].BackendRefs[1].Weight))
+		updatedGRPC, getErr := rpcPluginImp.GatewayAPIClientset.GatewayV1().GRPCRoutes(mocks.RolloutNamespace).Get(context.Background(), mocks.GRPCRouteName, metav1.GetOptions{})
+		require.NoError(t, getErr)
+		assert.Equal(t, maxWeight-desiredWeight, *(updatedGRPC.Spec.Rules[0].BackendRefs[0].Weight))
+		assert.Equal(t, desiredWeight, *(updatedGRPC.Spec.Rules[0].BackendRefs[1].Weight))
+		updatedTCP, getErr := rpcPluginImp.GatewayAPIClientset.GatewayV1alpha2().TCPRoutes(mocks.RolloutNamespace).Get(context.Background(), mocks.TCPRouteName, metav1.GetOptions{})
+		require.NoError(t, getErr)
+		assert.Equal(t, maxWeight-desiredWeight, *(updatedTCP.Spec.Rules[0].BackendRefs[0].Weight))
+		assert.Equal(t, desiredWeight, *(updatedTCP.Spec.Rules[0].BackendRefs[1].Weight))
+		updatedTLS, getErr := rpcPluginImp.GatewayAPIClientset.GatewayV1alpha2().TLSRoutes(mocks.RolloutNamespace).Get(context.Background(), mocks.TLSRouteName, metav1.GetOptions{})
+		require.NoError(t, getErr)
+		assert.Equal(t, maxWeight-desiredWeight, *(updatedTLS.Spec.Rules[0].BackendRefs[0].Weight))
+		assert.Equal(t, desiredWeight, *(updatedTLS.Spec.Rules[0].BackendRefs[1].Weight))
+	})
 	t.Run("SetHTTPRouteWeightAddsAndRemovesLabel", func(t *testing.T) {
 		httpRoute := mocks.CreateHTTPRouteWithLabels(mocks.HTTPRouteName, nil)
 		rpcPluginImp.GatewayAPIClientset = gwFake.NewSimpleClientset(httpRoute, &mocks.GRPCRouteObj, &mocks.TCPPRouteObj, &mocks.TLSRouteObj)
