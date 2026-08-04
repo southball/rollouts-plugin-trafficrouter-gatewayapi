@@ -254,3 +254,54 @@ rabbitQueue=myProductionQueue
 ```
 
 You can easily read this file with your favorite programming language into a settings object.
+
+## Scenario - traffic granularity less than 1%
+
+Since Argo Rollouts 1.9.0[^argo-rollout-maxtrafficweight-version], traffic can be split using granularity smaller than 1%, by changing `maxTrafficWeight` from the default value of `100`.
+
+!!! warning "Regarding `maxTrafficWeight`"
+
+    Argo Rollouts requires the `maxTrafficWeight` to fit within an `int32`, while Gateway API [limits that `weight` to be no more than `1000000`](https://github.com/kubernetes-sigs/gateway-api/blob/6d76ec6e574cab4719351767ae6c42ef23e62240/apis/v1/shared_types.go#L268-L286). Therefore, it is recommended to set `maxTrafficWeight` to no more than `1000000` to prevent going over the limit.
+
+Here is an example that uses this feature:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: rollouts-demo
+spec:
+  replicas: 5
+  strategy:
+    canary:
+      stableService: rollouts-demo-stable
+      canaryService: rollouts-demo-canary
+      maxSurge: 1
+      maxUnavailable: 0
+      steps:
+        - setWeight: 1
+        - pause: {}
+        - setWeight: 100
+        - pause: {}
+        - setWeight: 10000
+        - pause: {}
+        - setWeight: 1000000
+      trafficRouting:
+        maxTrafficWeight: 1000000
+        plugins:
+          argoproj-labs/gatewayAPI:
+            httpRoute: rollouts-demo
+  selector:
+    matchLabels:
+      app: rollouts-demo
+  template:
+    metadata:
+      labels:
+        app: rollouts-demo
+    spec:
+      containers:
+        - name: rollouts-demo
+          image: <my-image:my-tag>
+```
+
+[^argo-rollout-maxtrafficweight-version]: The field was actually added to Argo Rollouts in 1.7.0, in [argo-rollouts#3215](https://github.com/argoproj/argo-rollouts/pull/3215). However, due to a bug which was fixed in [argo-rollouts#4646](https://github.com/argoproj/argo-rollouts/pull/4646), it is likely to be broken in <1.9.0.
