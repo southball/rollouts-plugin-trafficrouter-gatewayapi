@@ -201,9 +201,6 @@ spec:
       canaryService: argo-rollouts-canary-service # our created canary service
       stableService: argo-rollouts-stable-service # our created stable service
       trafficRouting:
-        # Optional: use a larger total for finer-grained traffic weights.
-        # setWeight values below use this same scale.
-        # maxTrafficWeight: 100
         plugins:
           argoproj-labs/gatewayAPI:
             httpRoute: argo-rollouts-http-route # our created httproute
