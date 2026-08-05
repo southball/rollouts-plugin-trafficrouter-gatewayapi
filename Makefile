@@ -2,7 +2,7 @@ CURRENT_DIR=$(shell pwd)
 DIST_DIR=${CURRENT_DIR}/dist
 E2E_CLUSTER_NAME=gatewayapi-plugin-e2e
 IS_E2E_CLUSTER=$(shell kind get clusters | grep -e "^${E2E_CLUSTER_NAME}$$")
-CHAINSAW_VERSION=v0.2.12
+CHAINSAW_VERSION=v0.2.15
 
 # Versions of components used in e2e tests
 GATEWAY_API_VERSION=v1.4.0
@@ -90,4 +90,3 @@ endif
 .PHONY: serve-docs
 serve-docs:  ## serve docs locally
 	docker run --rm -it -p 8000:8000 -v ${CURRENT_DIR}:/docs squidfunk/mkdocs-material serve -a 0.0.0.0:8000
-

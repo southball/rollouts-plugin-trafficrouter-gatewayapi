@@ -1,0 +1,15 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: httproute-canary-experiment
+  namespace: default
+spec:
+  parentRefs:
+    - name: traefik-gateway
+      namespace: default
+  rules:
+    - backendRefs:
+        - name: httproute-canary-experiment-stable-service
+          port: 80
+        - name: httproute-canary-experiment-canary-service
+          port: 80

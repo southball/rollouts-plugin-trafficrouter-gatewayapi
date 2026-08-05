@@ -1,0 +1,18 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: httproute-canary-experiment
+  namespace: default
+spec:
+  (length(rules)): 1
+  rules:
+    - (length(backendRefs)): 4
+      backendRefs:
+        - name: httproute-canary-experiment-stable-service
+          (weight): 60
+        - name: httproute-canary-experiment-canary-service
+          (weight): 20
+        - name: httproute-canary-experiment-baseline-service
+          (weight): 10
+        - name: httproute-canary-experiment-candidate-service
+          (weight): 10

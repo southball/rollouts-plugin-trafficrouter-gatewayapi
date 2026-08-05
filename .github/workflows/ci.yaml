@@ -87,7 +87,7 @@ jobs:
       - name: Install Chainsaw
         uses: kyverno/action-install-chainsaw@v0.1.0
         with:
-          release: v0.2.14
+          release: v0.2.15
       - name: Check install
         run: chainsaw version
       - name: Set up Kind

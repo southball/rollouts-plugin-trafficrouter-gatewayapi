@@ -1,0 +1,48 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: httproute-canary-experiment-rollout
+  namespace: default
+spec:
+  replicas: 2
+  strategy:
+    canary:
+      canaryService: httproute-canary-experiment-canary-service
+      stableService: httproute-canary-experiment-stable-service
+      trafficRouting:
+        plugins:
+          argoproj-labs/gatewayAPI:
+            httpRoute: httproute-canary-experiment
+            namespace: default
+      steps:
+        - setWeight: 20
+        - experiment:
+            templates:
+              - name: baseline
+                specRef: stable
+                replicas: 1
+                weight: 10
+                service:
+                  name: httproute-canary-experiment-baseline-service
+              - name: candidate
+                specRef: canary
+                replicas: 1
+                weight: 10
+                service:
+                  name: httproute-canary-experiment-candidate-service
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: httproute-canary-experiment
+  template:
+    metadata:
+      labels:
+        app: httproute-canary-experiment
+    spec:
+      containers:
+        - name: rollouts-demo
+          image: argoproj/rollouts-demo:red
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
