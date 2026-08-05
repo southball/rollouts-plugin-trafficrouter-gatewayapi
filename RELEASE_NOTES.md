@@ -1,9 +1,5 @@
 # Changes
 
-Remove the fallback code for backwards compatibility that was introduced in [0.13.0](https://github.com/argoproj-labs/rollouts-plugin-trafficrouter-gatewayapi/releases/tag/v0.13.0). If you are updating the plugin from a release earlier than 0.13.0 please
-read the release notes there first
+Add support for `maxTrafficWeight`. 
 
-Removal of this code also fixes
-
-- [Using headers with same name](https://github.com/argoproj-labs/rollouts-plugin-trafficrouter-gatewayapi/issues/215)
-- [Keeping unrelated routes intact](https://github.com/argoproj-labs/rollouts-plugin-trafficrouter-gatewayapi/issues/217)
+This MAY change the behavior of rollouts with `maxTrafficWeight` already set, where all `setWeight` use values not more than 100. For instance, `setWeight: 10` with `maxTrafficWeight: 1000` will now route **1%** of the traffic, **NOT** 10%. If you use such settings, you should review the `setWeight` values.
