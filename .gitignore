@@ -4,4 +4,6 @@ dist
 .idea
 coverage.out
 coverage.html
-chainsaw-report.html
+chainsaw-report.hml
+chainsaw-report.xml
+
