@@ -3,8 +3,6 @@ package plugin
 import (
 	"context"
 	"fmt"
-	"sort"
-	"strings"
 
 	"github.com/argoproj/argo-rollouts/pkg/apis/rollouts/v1alpha1"
 	"github.com/argoproj/argo-rollouts/utils/weightutil"
@@ -14,8 +12,6 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gatewayApiClientset "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned"
 )
-
-const experimentServicesAnnotation = "rollouts.argoproj.io/gatewayapi-experiment-services"
 
 func HandleExperiment(ctx context.Context, clientset *kubernetes.Clientset, gatewayClient gatewayApiClientset.Interface, logger *logrus.Entry, rollout *v1alpha1.Rollout, httpRoute *gatewayv1.HTTPRoute, additionalDestinations []v1alpha1.WeightDestination) error {
 	ruleIdx := -1
@@ -40,15 +36,22 @@ func HandleExperiment(ctx context.Context, clientset *kubernetes.Clientset, gate
 
 	isExperimentActive := rollout.Spec.Strategy.Canary != nil && rollout.Status.Canary.CurrentExperiment != ""
 
-	// Keep ownership on the route because Argo Rollouts can clear the additional
-	// destinations from status before it clears CurrentExperiment. Status remains
-	// a fallback for routes created by plugin versions that predate the annotation.
-	experimentServices := experimentServicesFromHTTPRoute(httpRoute)
+	// previousServices are the experiment services the controller told the plugin to add
+	// on the previous reconcile, recorded in the rollout status. These are the only
+	// backends the plugin owns and may remove; any other backend in the route is managed
+	// externally and must be left untouched (issue #203).
+	previousServices := make(map[string]bool)
 	if rollout.Status.Canary.Weights != nil {
 		for _, dest := range rollout.Status.Canary.Weights.Additional {
-			if dest.ServiceName != "" {
-				experimentServices[dest.ServiceName] = true
-			}
+			previousServices[dest.ServiceName] = true
+		}
+	}
+
+	hasExperimentServices := false
+	for _, backendRef := range httpRoute.Spec.Rules[ruleIdx].BackendRefs {
+		if previousServices[string(backendRef.Name)] {
+			hasExperimentServices = true
+			break
 		}
 	}
 
@@ -59,13 +62,6 @@ func HandleExperiment(ctx context.Context, clientset *kubernetes.Clientset, gate
 			logger.Info("No experiment services found in additionalDestinations, skipping experiment service addition")
 			return nil
 		}
-
-		for _, dest := range additionalDestinations {
-			if dest.ServiceName != "" {
-				experimentServices[dest.ServiceName] = true
-			}
-		}
-		setExperimentServicesAnnotation(httpRoute, experimentServices)
 
 		// Preserve the canary allocation established by SetWeight. Experiment
 		// destinations consume traffic in addition to canary, so only the
@@ -149,7 +145,7 @@ func HandleExperiment(ctx context.Context, clientset *kubernetes.Clientset, gate
 		return nil
 	}
 
-	if !isExperimentActive && len(experimentServices) > 0 {
+	if !isExperimentActive && hasExperimentServices {
 		logger.Info("Experiment is no longer active, removing experiment services from HTTPRoute")
 
 		stableWeight := weightutil.MaxTrafficWeight(rollout)
@@ -158,7 +154,7 @@ func HandleExperiment(ctx context.Context, clientset *kubernetes.Clientset, gate
 		for _, backendRef := range httpRoute.Spec.Rules[ruleIdx].BackendRefs {
 			serviceName := string(backendRef.Name)
 
-			if experimentServices[serviceName] {
+			if previousServices[serviceName] {
 				logger.Info(fmt.Sprintf("Removing experiment service from HTTPRoute: %s", serviceName))
 				continue
 			}
@@ -174,43 +170,8 @@ func HandleExperiment(ctx context.Context, clientset *kubernetes.Clientset, gate
 		}
 
 		httpRoute.Spec.Rules[ruleIdx].BackendRefs = filteredBackendRefs
-		setExperimentServicesAnnotation(httpRoute, nil)
 		logger.Info("Experiment services removed from HTTPRoute")
 	}
 
 	return nil
-}
-
-func experimentServicesFromHTTPRoute(httpRoute *gatewayv1.HTTPRoute) map[string]bool {
-	services := make(map[string]bool)
-	for serviceName := range strings.SplitSeq(httpRoute.Annotations[experimentServicesAnnotation], ",") {
-		if serviceName != "" {
-			services[serviceName] = true
-		}
-	}
-	return services
-}
-
-func setExperimentServicesAnnotation(httpRoute *gatewayv1.HTTPRoute, services map[string]bool) {
-	annotations := httpRoute.GetAnnotations()
-	if len(services) == 0 {
-		delete(annotations, experimentServicesAnnotation)
-		if len(annotations) == 0 {
-			httpRoute.SetAnnotations(nil)
-		} else {
-			httpRoute.SetAnnotations(annotations)
-		}
-		return
-	}
-
-	serviceNames := make([]string, 0, len(services))
-	for serviceName := range services {
-		serviceNames = append(serviceNames, serviceName)
-	}
-	sort.Strings(serviceNames)
-	if annotations == nil {
-		annotations = make(map[string]string)
-	}
-	annotations[experimentServicesAnnotation] = strings.Join(serviceNames, ",")
-	httpRoute.SetAnnotations(annotations)
 }

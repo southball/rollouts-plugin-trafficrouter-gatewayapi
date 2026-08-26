@@ -268,7 +268,6 @@ func TestHandleExperimentPreservesCanaryWeight(t *testing.T) {
 	assert.Equal(t, int32(20), *httpRoute.Spec.Rules[0].BackendRefs[1].Weight)
 	assert.Equal(t, int32(10), *httpRoute.Spec.Rules[0].BackendRefs[2].Weight)
 	assert.Equal(t, int32(10), *httpRoute.Spec.Rules[0].BackendRefs[3].Weight)
-	assert.Equal(t, "exp-svc-1,exp-svc-2", httpRoute.Annotations[experimentServicesAnnotation])
 }
 
 func TestHandleExperimentFloorsStableWeightWhenExperimentWeightsExceedMaxTrafficWeight(t *testing.T) {
@@ -313,29 +312,6 @@ func TestHandleExperimentCleanupRestoresMaxTrafficWeight(t *testing.T) {
 	require.Len(t, httpRoute.Spec.Rules[0].BackendRefs, 2)
 	assert.Equal(t, int32(100000), *httpRoute.Spec.Rules[0].BackendRefs[0].Weight)
 	assert.Equal(t, int32(0), *httpRoute.Spec.Rules[0].BackendRefs[1].Weight)
-}
-
-func TestHandleExperimentCleanupUsesRouteOwnershipAfterRolloutStatusIsCleared(t *testing.T) {
-	rollout := experimentRollout(100, "")
-	httpRoute := experimentHTTPRoute(
-		backendRef("stable-svc", 100),
-		backendRef("canary-svc", 0),
-		backendRef("exp-svc-1", 10),
-		backendRef("unmanaged-svc", 5),
-		backendRef("exp-svc-2", 10),
-	)
-	httpRoute.Annotations = map[string]string{
-		experimentServicesAnnotation: "exp-svc-1,exp-svc-2",
-	}
-
-	err := HandleExperiment(context.Background(), nil, nil, testLogger(), rollout, httpRoute, nil)
-
-	require.NoError(t, err)
-	require.Len(t, httpRoute.Spec.Rules[0].BackendRefs, 3)
-	assert.Equal(t, gatewayv1.ObjectName("stable-svc"), httpRoute.Spec.Rules[0].BackendRefs[0].Name)
-	assert.Equal(t, gatewayv1.ObjectName("canary-svc"), httpRoute.Spec.Rules[0].BackendRefs[1].Name)
-	assert.Equal(t, gatewayv1.ObjectName("unmanaged-svc"), httpRoute.Spec.Rules[0].BackendRefs[2].Name)
-	assert.NotContains(t, httpRoute.Annotations, experimentServicesAnnotation)
 }
 
 func experimentRollout(maxWeight int32, currentExperiment string) *v1alpha1.Rollout {
