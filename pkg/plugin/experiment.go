@@ -34,7 +34,7 @@ func HandleExperiment(ctx context.Context, clientset *kubernetes.Clientset, gate
 		return fmt.Errorf("no matching rule found for rollout %s", rollout.Name)
 	}
 
-	isExperimentActive := rollout.Spec.Strategy.Canary != nil && rollout.Status.Canary.CurrentExperiment != ""
+	isExperimentActive := rollout.Spec.Strategy.Canary != nil && rollout.Status.Canary.CurrentExperiment != "" && len(additionalDestinations) > 0
 
 	// previousServices are the experiment services the controller told the plugin to add
 	// on the previous reconcile, recorded in the rollout status. These are the only
@@ -57,11 +57,6 @@ func HandleExperiment(ctx context.Context, clientset *kubernetes.Clientset, gate
 
 	if isExperimentActive {
 		logger.Info(fmt.Sprintf("Found active experiment %s", rollout.Status.Canary.CurrentExperiment))
-
-		if len(additionalDestinations) == 0 {
-			logger.Info("No experiment services found in additionalDestinations, skipping experiment service addition")
-			return nil
-		}
 
 		// Preserve the canary allocation established by SetWeight. Experiment
 		// destinations consume traffic in addition to canary, so only the

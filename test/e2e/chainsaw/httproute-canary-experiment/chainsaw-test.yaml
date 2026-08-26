@@ -99,7 +99,7 @@ spec:
             file: assertions/rollout-healthy.yaml
 
     - name: assert-cleanup
-      description: Plugin resets stable and canary weights after promotion.
+      description: Plugin removes experiment backends and resets canary weight to 0 after promotion.
       try:
         - assert:
             timeout: 60s
