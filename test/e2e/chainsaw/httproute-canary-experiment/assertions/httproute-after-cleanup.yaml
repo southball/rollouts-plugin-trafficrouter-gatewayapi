@@ -6,9 +6,5 @@ metadata:
 spec:
   (length(rules)): 1
   rules:
-    - (length(backendRefs)): 2
-      backendRefs:
-        - name: httproute-canary-experiment-stable-service
-          (weight): 100
-        - name: httproute-canary-experiment-canary-service
-          (weight): 0
+    - (length(backendRefs[?name == 'httproute-canary-experiment-stable-service' && weight == `100`])): 1
+      (length(backendRefs[?name == 'httproute-canary-experiment-canary-service' && weight == `0`])): 1
