@@ -247,6 +247,29 @@ func TestHandleExperimentUsesMaxTrafficWeight(t *testing.T) {
 	assert.Equal(t, int32(50000), *httpRoute.Spec.Rules[0].BackendRefs[0].Weight)
 }
 
+func TestHandleExperimentPreservesCanaryWeight(t *testing.T) {
+	const maxWeight = int32(100)
+	rollout := experimentRollout(maxWeight, "active-experiment")
+	httpRoute := experimentHTTPRoute(
+		backendRef("stable-svc", 80),
+		backendRef("canary-svc", 20),
+		backendRef("exp-svc-1", 10),
+		backendRef("exp-svc-2", 10),
+	)
+	destinations := []v1alpha1.WeightDestination{
+		{ServiceName: "exp-svc-1", Weight: 10},
+		{ServiceName: "exp-svc-2", Weight: 10},
+	}
+
+	err := HandleExperiment(context.Background(), nil, nil, testLogger(), rollout, httpRoute, destinations)
+
+	require.NoError(t, err)
+	assert.Equal(t, int32(60), *httpRoute.Spec.Rules[0].BackendRefs[0].Weight)
+	assert.Equal(t, int32(20), *httpRoute.Spec.Rules[0].BackendRefs[1].Weight)
+	assert.Equal(t, int32(10), *httpRoute.Spec.Rules[0].BackendRefs[2].Weight)
+	assert.Equal(t, int32(10), *httpRoute.Spec.Rules[0].BackendRefs[3].Weight)
+}
+
 func TestHandleExperimentFloorsStableWeightWhenExperimentWeightsExceedMaxTrafficWeight(t *testing.T) {
 	const maxWeight = int32(100000)
 	rollout := experimentRollout(maxWeight, "active-experiment")
@@ -289,6 +312,33 @@ func TestHandleExperimentCleanupRestoresMaxTrafficWeight(t *testing.T) {
 	require.Len(t, httpRoute.Spec.Rules[0].BackendRefs, 2)
 	assert.Equal(t, int32(100000), *httpRoute.Spec.Rules[0].BackendRefs[0].Weight)
 	assert.Equal(t, int32(0), *httpRoute.Spec.Rules[0].BackendRefs[1].Weight)
+}
+
+func TestHandleExperimentCleansUpBeforeCurrentExperimentIsCleared(t *testing.T) {
+	rollout := experimentRollout(100, "active-experiment")
+	rollout.Status.Canary.Weights = &v1alpha1.TrafficWeights{
+		Additional: []v1alpha1.WeightDestination{
+			{ServiceName: "exp-svc-1", Weight: 10},
+			{ServiceName: "exp-svc-2", Weight: 10},
+		},
+	}
+	httpRoute := experimentHTTPRoute(
+		backendRef("stable-svc", 60),
+		backendRef("canary-svc", 40),
+		backendRef("exp-svc-1", 10),
+		backendRef("unmanaged-svc", 5),
+		backendRef("exp-svc-2", 10),
+	)
+
+	err := HandleExperiment(context.Background(), nil, nil, testLogger(), rollout, httpRoute, nil)
+
+	require.NoError(t, err)
+	require.Len(t, httpRoute.Spec.Rules[0].BackendRefs, 3)
+	assert.Equal(t, gatewayv1.ObjectName("stable-svc"), httpRoute.Spec.Rules[0].BackendRefs[0].Name)
+	assert.Equal(t, int32(100), *httpRoute.Spec.Rules[0].BackendRefs[0].Weight)
+	assert.Equal(t, gatewayv1.ObjectName("canary-svc"), httpRoute.Spec.Rules[0].BackendRefs[1].Name)
+	assert.Equal(t, int32(0), *httpRoute.Spec.Rules[0].BackendRefs[1].Weight)
+	assert.Equal(t, gatewayv1.ObjectName("unmanaged-svc"), httpRoute.Spec.Rules[0].BackendRefs[2].Name)
 }
 
 func experimentRollout(maxWeight int32, currentExperiment string) *v1alpha1.Rollout {

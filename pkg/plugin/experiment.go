@@ -34,7 +34,7 @@ func HandleExperiment(ctx context.Context, clientset *kubernetes.Clientset, gate
 		return fmt.Errorf("no matching rule found for rollout %s", rollout.Name)
 	}
 
-	isExperimentActive := rollout.Spec.Strategy.Canary != nil && rollout.Status.Canary.CurrentExperiment != ""
+	isExperimentActive := rollout.Spec.Strategy.Canary != nil && rollout.Status.Canary.CurrentExperiment != "" && len(additionalDestinations) > 0
 
 	// previousServices are the experiment services the controller told the plugin to add
 	// on the previous reconcile, recorded in the rollout status. These are the only
@@ -58,25 +58,30 @@ func HandleExperiment(ctx context.Context, clientset *kubernetes.Clientset, gate
 	if isExperimentActive {
 		logger.Info(fmt.Sprintf("Found active experiment %s", rollout.Status.Canary.CurrentExperiment))
 
-		if len(additionalDestinations) == 0 {
-			logger.Info("No experiment services found in additionalDestinations, skipping experiment service addition")
-			return nil
+		// Preserve the canary allocation established by SetWeight. Experiment
+		// destinations consume traffic in addition to canary, so only the
+		// remainder belongs to stable.
+		var canaryWeight int32
+		for _, backendRef := range httpRoute.Spec.Rules[ruleIdx].BackendRefs {
+			if string(backendRef.Name) == canaryService && backendRef.Weight != nil {
+				canaryWeight = *backendRef.Weight
+				break
+			}
 		}
 
-		// Compute total experiment weight
-		var totalExperimentWeight int32
+		var totalExperimentWeight int64
 		for _, dest := range additionalDestinations {
-			totalExperimentWeight += dest.Weight
+			totalExperimentWeight += int64(dest.Weight)
 		}
 
-		// Sanity cap: don't allow overflow
 		maxWeight := weightutil.MaxTrafficWeight(rollout)
-		if totalExperimentWeight > maxWeight {
-			logger.Warnf("Total experiment weight exceeds maxTrafficWeight %d (got %d), capping at %d", maxWeight, totalExperimentWeight, maxWeight)
-			totalExperimentWeight = maxWeight
+		totalAllocatedWeight := int64(canaryWeight) + totalExperimentWeight
+		stableWeight := int32(0)
+		if totalAllocatedWeight < int64(maxWeight) {
+			stableWeight = maxWeight - int32(totalAllocatedWeight)
+		} else if totalAllocatedWeight > int64(maxWeight) {
+			logger.Warnf("Combined canary and experiment weight exceeds maxTrafficWeight %d (got %d), setting stable weight to 0", maxWeight, totalAllocatedWeight)
 		}
-
-		stableWeight := maxWeight - totalExperimentWeight
 
 		for i, backendRef := range httpRoute.Spec.Rules[ruleIdx].BackendRefs {
 			if string(backendRef.Name) == stableService {

@@ -1,0 +1,106 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: httproute-canary-experiment
+  labels:
+    route-type: http
+spec:
+  description: >
+    Verifies that combining canary and experiment works correctly, in particular
+    the weight calculation should be correct.
+  # Uses 'default' namespace so the gateway (traefik-gateway) is accessible.
+  namespace: default
+  concurrent: true
+
+  steps:
+    - name: cleanup-previous-run
+      description: Remove resources left behind by an interrupted or skip-delete run.
+      try:
+        - delete:
+            file: resources/rollout.yaml
+            deletionPropagationPolicy: Foreground
+        - delete:
+            file: resources/httproute.yaml
+        - delete:
+            file: resources/services.yaml
+
+    - name: create-resources
+      description: Create the Services, HTTPRoute, and Rollout.
+      try:
+        - apply:
+            file: resources/services.yaml
+        - apply:
+            file: resources/httproute.yaml
+        - apply:
+            file: resources/rollout.yaml
+
+    - name: assert-initial-state
+      description: Plugin initializes the HTTPRoute with stable weight 100 and canary weight 0.
+      try:
+        - assert:
+            timeout: 30s
+            file: assertions/httproute-initial.yaml
+
+    - name: wait-for-initial-healthy
+      description: Wait for the initial rollout to reach Healthy before triggering a canary.
+      try:
+        - assert:
+            timeout: 5m
+            file: assertions/rollout-healthy.yaml
+
+    - name: trigger-canary
+      description: Trigger canary, set canary weight to 20 and create two experiments with weight 10 each.
+      try:
+        - patch:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Rollout
+              metadata:
+                name: httproute-canary-experiment-rollout
+                namespace: default
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: rollouts-demo
+                        image: argoproj/rollouts-demo:green
+                        ports:
+                          - name: http
+                            containerPort: 8080
+                            protocol: TCP
+
+    - name: assert-canary-and-experiment-weights
+      description: Stable should have weight 60, canary should have weight 20, and the experiments should each have weight 10.
+      try:
+        - assert:
+            timeout: 3m
+            file: assertions/httproute-experiment.yaml
+
+    - name: promote-experiment-step
+      description: Promote the rollout.
+      try:
+        - patch:
+            subresource: status
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Rollout
+              metadata:
+                name: httproute-canary-experiment-rollout
+                namespace: default
+              status:
+                pauseConditions: null
+                currentStepIndex: 2
+
+    - name: assert-rollout-healthy
+      description: Wait for the promotion to complete and the rollout to become Healthy.
+      try:
+        - assert:
+            timeout: 5m
+            file: assertions/rollout-healthy.yaml
+
+    - name: assert-cleanup
+      description: Plugin removes experiment backends and resets canary weight to 0 after promotion.
+      try:
+        - assert:
+            timeout: 60s
+            file: assertions/httproute-after-cleanup.yaml
